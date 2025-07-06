@@ -68,42 +68,62 @@ def generate_one_episode(
             displacement,
         )
 
-        success = False
-        suggestion = np.zeros(3)
-        max_attempts = 5
-        for attempt in range(1, max_attempts + 1):
-            success, suggestion = wrapper.generate_image(
-                save_paired_images_folder_path=out_root,
-                source_robot_states_path=out_root,
-                robot_dataset=robot_dataset,
-                robot_disp=displacement,
-                episode=episode,
-                unlimited=unlimited,
-            )
-            if success:
-                if attempt > 1:
-                    logger.info(
-                        "Episode %d robot %s succeeded after %d retries",
-                        episode,
-                        robot,
-                        attempt - 1,
-                    )
-                break
-            logger.warning(
-                "Episode %d robot %s attempt %d failed, suggestion %s",
-                episode,
-                robot,
-                attempt,
-                suggestion,
-            )
-            displacement += suggestion
-        else:
-            logger.error(
-                "Episode %d robot %s failed after %d attempts",
-                episode,
-                robot,
-                max_attempts,
-            )
+        step = 0.05
+        max_iter = 5
+        for _ in range(max_iter):
+            candidates = [
+                displacement,
+                displacement + np.array([step, 0, 0]),
+                displacement - np.array([step, 0, 0]),
+                displacement + np.array([0, step, 0]),
+                displacement - np.array([0, step, 0]),
+                displacement + np.array([0, 0, step]),
+                displacement - np.array([0, 0, step]),
+            ]
+
+            best_steps = -1
+            best_disp = displacement
+            for cand in candidates:
+                ok, _sug, steps = wrapper.generate_image(
+                    save_paired_images_folder_path=out_root,
+                    source_robot_states_path=out_root,
+                    robot_dataset=robot_dataset,
+                    robot_disp=cand,
+                    episode=episode,
+                    unlimited=unlimited,
+                    dry_run=True,
+                )
+                logger.debug(
+                    "Episode %d robot %s test disp %s -> ok=%s steps=%s",
+                    episode,
+                    robot,
+                    cand,
+                    ok,
+                    steps,
+                )
+                if ok:
+                    displacement = cand
+                    best_disp = cand
+                    best_steps = steps
+                    break
+                if steps > best_steps:
+                    best_steps = steps
+                    best_disp = cand
+            else:
+                displacement = best_disp
+                step *= 0.5
+                continue
+            break
+
+        success, _sug, _ = wrapper.generate_image(
+            save_paired_images_folder_path=out_root,
+            source_robot_states_path=out_root,
+            robot_dataset=robot_dataset,
+            robot_disp=displacement,
+            episode=episode,
+            unlimited=unlimited,
+            dry_run=False,
+        )
 
         return robot, episode, bool(success)
 
